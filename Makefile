@@ -2,7 +2,7 @@ build:
 	GOOS=js GOARCH=wasm go build -o static/main.wasm cmd/wasm/main.go
 
 assets:
-	cp "`go env GOROOT`/misc/wasm/wasm_exec.js" ./sta
+	cp "`go env GOROOT`/misc/wasm/wasm_exec.js" ./static
 
 dev: build
 	ran -p 8090 -r static

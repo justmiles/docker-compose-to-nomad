@@ -15,7 +15,18 @@
   <body>
     <div>
       <label for="inputField">Enter value</label>
-      <input id="inputField" name="Hash" type="text" />
+
+      <textarea id="inputField" name="Hash" rows="4" cols="50">
+version: "3.9"
+services:
+  web:
+    build: .
+    ports:
+      - "8000:5000"
+  redis:
+    image: "redis:alpine"
+      </textarea>
+
       <div id="outputHash" style="font-size: 20px"></div>
     </div>
     <script>
