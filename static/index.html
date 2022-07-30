@@ -14,9 +14,8 @@
   </head>
   <body>
     <div>
-      <label for="inputField">Enter value</label>
 
-      <textarea id="inputField" name="Hash" rows="4" cols="50">
+      <textarea id="inputField" name="Hash" rows="10" cols="80">
 version: "3.9"
 services:
   web:
@@ -27,7 +26,8 @@ services:
     image: "redis:alpine"
       </textarea>
 
-      <div id="outputHash" style="font-size: 20px"></div>
+      <textarea id="outputHash" name="Output" rows="10" cols="80">      </textarea>
+
     </div>
     <script>
       var inputField = document.querySelector("#inputField");

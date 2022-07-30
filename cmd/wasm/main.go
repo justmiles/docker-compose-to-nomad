@@ -31,7 +31,7 @@ func hash(this js.Value, args []js.Value) interface{} {
 	output = "Services:"
 	for _, service := range project.Services {
 		fmt.Println(service.Name)
-		output = fmt.Sprintf("%s<br />- %s", output, service.Name)
+		output = fmt.Sprintf("%s\n- %s", output, service.Name)
 	}
 
 	return output
