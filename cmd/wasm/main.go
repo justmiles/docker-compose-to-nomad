@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/compose-spec/compose-go/loader"
-	"github.com/compose-spec/compose-go/types"
+	"github.com/justmiles/docker-compose-to-nomad/cmd/converter"
 )
 
 func main() {
@@ -22,7 +21,7 @@ func hash(this js.Value, args []js.Value) interface{} {
 	}
 	input := args[0].String()
 
-	project, err := inputToComposeProject(input)
+	project, err := converter.InputToComposeProject(input)
 	if err != nil {
 		fmt.Println(err)
 		return output
@@ -35,20 +34,4 @@ func hash(this js.Value, args []js.Value) interface{} {
 	}
 
 	return output
-}
-
-func inputToComposeProject(input string) (*types.Project, error) {
-	configDetails := types.ConfigDetails{
-		ConfigFiles: []types.ConfigFile{
-			types.ConfigFile{
-				Content: []byte(input),
-			},
-		},
-	}
-
-	loadOption := func(options *loader.Options) {
-		options.SkipNormalization = true
-	}
-
-	return loader.Load(configDetails, loadOption)
 }

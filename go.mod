@@ -2,7 +2,10 @@ module github.com/justmiles/docker-compose-to-nomad
 
 go 1.18
 
-require github.com/compose-spec/compose-go v1.3.0
+require (
+	github.com/compose-spec/compose-go v1.3.0
+	github.com/davecgh/go-spew v1.1.1
+)
 
 require (
 	github.com/distribution/distribution/v3 v3.0.0-20220725133111-4bf3547399eb // indirect
