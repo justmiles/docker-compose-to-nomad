@@ -18,7 +18,7 @@ func newProject() types.Project {
 	}
 }
 
-func Test_InputToComposessProject(t *testing.T) {
+func Test_ProjectFromString(t *testing.T) {
 
 	// setup tests
 
@@ -141,27 +141,27 @@ func Test_InputToComposessProject(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := InputToComposeProject(tt.input)
+			got, err := ProjectFromString(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("InputToComposeProject() error = %v", err)
+				t.Errorf("ProjectFromString() error = %v", err)
 				return
 			}
 
 			gotJson, err := got.Services.MarshalJSON()
 			if err != nil {
-				t.Errorf("InputToComposeProject(): could not marshal json %v", err)
+				t.Errorf("ProjectFromString(): could not marshal json %v", err)
 			}
 			wantJson, err := tt.want.Services.MarshalJSON()
 			if err != nil {
-				t.Errorf("InputToComposeProject(): could not marshal json %v", err)
+				t.Errorf("ProjectFromString(): could not marshal json %v", err)
 			}
 
 			if !reflect.DeepEqual(gotJson, wantJson) {
-				t.Errorf("InputToComposeProject() services do not match: = %v, want %v", string(gotJson), string(wantJson))
+				t.Errorf("ProjectFromString() services do not match: = %v, want %v", string(gotJson), string(wantJson))
 			}
 
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("InputToComposeProject() = %v, want %v", string(gotJson), string(wantJson))
+				t.Errorf("ProjectFromString() = %v, want %v", string(gotJson), string(wantJson))
 			}
 		})
 	}

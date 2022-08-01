@@ -11,4 +11,4 @@ dev-reload:
 	watchexec -r -e go -- make dev
 
 test:
-	go test -timeout 30s github.com/justmiles/docker-compose-to-nomad/cmd/converter
+	go test -timeout 30s github.com/justmiles/docker-compose-to-nomad/cmd/wasm
