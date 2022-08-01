@@ -10,6 +10,7 @@
 
 - [ ] Snazzy UI to attach our very large audience
 - [ ] Nice to have: convert from nomad hcl to docker-compose
+- [ ] Set and store non-compose related details (datacenters, namespace, etc)
 - [ ] Setup github to static host
 - [ ] CI/CD with Drone
 - [ ] Come up with a name and domain
