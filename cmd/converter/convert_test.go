@@ -2,10 +2,12 @@ package converter
 
 import (
 	_ "crypto/sha512"
+	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/compose-spec/compose-go/types"
+	_ "github.com/hashicorp/nomad/jobspec2"
 )
 
 func newProject() types.Project {
@@ -169,4 +171,79 @@ func Test_ProjectFromString(t *testing.T) {
 
 func stringptr(s string) *string {
 	return &s
+}
+
+func Test_ComposeToHCL(t *testing.T) {
+
+	input1 := `
+  services:
+    db:
+      # this is a test comment
+      image: mariadb:10.6.4-focal
+      command: '--default-authentication-plugin=mysql_native_password'
+      volumes:
+        - db_data:/var/lib/mysql
+      restart: always
+      environment:
+        - MYSQL_ROOT_PASSWORD=somewordpress
+        - MYSQL_DATABASE=wordpress
+        - MYSQL_USER=wordpress
+        - MYSQL_PASSWORD=wordpress
+      expose:
+        - 3306
+        - 33060
+    wordpress:
+      image: wordpress:latest
+      ports:
+        - 80:80
+      restart: always
+      environment:
+        - WORDPRESS_DB_HOST=db
+        - WORDPRESS_DB_USER=wordpress
+        - WORDPRESS_DB_PASSWORD=wordpress
+        - WORDPRESS_DB_NAME=wordpress
+  volumes:
+    db_data:
+  `
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "test1",
+			input: input1,
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			project, err := ProjectFromString(tt.input)
+			if err != nil {
+				t.Errorf("ProjectFromString() error = %v", err)
+				return
+			}
+
+			job, err := NomadJobFromComposeProject(project)
+			if err != nil {
+				t.Errorf("NomadJobFromComposeProject() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			hcl, err := job.MarshalHCL()
+			if err != nil {
+				t.Errorf("MarshalHCL() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			fmt.Println(hcl)
+			return
+			// if !reflect.DeepEqual(hcl, tt.want) {
+			// 	t.Errorf("JobToHCL() = %v, want %v", hcl, tt.want)
+			// }
+		})
+	}
 }

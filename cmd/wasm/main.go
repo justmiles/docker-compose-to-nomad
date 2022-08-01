@@ -3,11 +3,9 @@ package main
 import (
 	_ "crypto/sha512"
 	"fmt"
-	"log"
 	"syscall/js"
 
 	"github.com/justmiles/docker-compose-to-nomad/cmd/converter"
-	"github.com/rodaine/hclencoder"
 )
 
 func main() {
@@ -26,19 +24,20 @@ func hash(this js.Value, args []js.Value) interface{} {
 	project, err := converter.ProjectFromString(input)
 	if err != nil {
 		fmt.Println(err)
-		return output
+		return err.Error()
 	}
 
 	job, err := converter.NomadJobFromComposeProject(project)
 	if err != nil {
 		fmt.Println(err)
-		return output
+		return err.Error()
 	}
 
-	hclstr, err := hclencoder.Encode(job)
+	hcl, err := job.MarshalHCL()
 	if err != nil {
-		log.Fatal("unable to encode: ", err)
+		fmt.Println(err)
+		return err.Error()
 	}
 
-	return hclstr
+	return hcl
 }
