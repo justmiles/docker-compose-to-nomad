@@ -3,8 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"regexp" // Added for label sanitization
 	"strings"
-	"syscall/js" // For WASM interaction
+	"syscall/js"
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -46,6 +47,55 @@ func createCommentTokens(commentText string) hclwrite.Tokens {
 			Bytes: []byte("\n"),
 		},
 	}
+}
+
+// --- Helper Types and Functions for Port Processing ---
+
+type ProcessedPortInfo struct {
+	OriginalHostPort      string // The host port string as parsed (can be empty)
+	OriginalContainerPort string // The container port string as parsed
+	Comment               string // Raw comment text, if any
+	ProtocolStrippedPort  string // Container port number after stripping /tcp or /udp, used for consolidation key
+}
+
+var nonAlphanumericUnderscoreRegex = regexp.MustCompile(`[^a-z0-9_]+`)
+
+func sanitizeCommentToLabel(comment string) string {
+	if comment == "" {
+		return ""
+	}
+	lower := strings.ToLower(strings.TrimSpace(comment))
+	// Replace spaces and hyphens with underscores first
+	intermediate := strings.ReplaceAll(lower, " ", "_")
+	intermediate = strings.ReplaceAll(intermediate, "-", "_")
+	// Remove all other non-alphanumeric characters (keeps underscores)
+	sanitized := nonAlphanumericUnderscoreRegex.ReplaceAllString(intermediate, "")
+	// Remove leading/trailing underscores that might result
+	sanitized = strings.Trim(sanitized, "_")
+	// Prevent multiple underscores together if they form due to replacements
+	if strings.Contains(sanitized, "__") { // Only compile if needed
+		sanitized = regexp.MustCompile(`_+`).ReplaceAllString(sanitized, "_")
+	}
+	return sanitized
+}
+
+var wellKnownPorts = map[string]string{
+	"80":   "http",
+	"443":  "https",
+	"21":   "ftp",
+	"22":   "ssh",
+	"23":   "telnet",
+	"25":   "smtp",
+	"53":   "dns",
+	"110":  "pop3",
+	"143":  "imap",
+	"3306": "mysql",
+	"5432": "postgresql",
+}
+
+func getWellKnownPortLabel(portStr string) string {
+	// portStr is assumed to be just the number, already stripped of /tcp, /udp
+	return wellKnownPorts[portStr]
 }
 
 // --- Conversion Logic ---
@@ -98,41 +148,141 @@ func convertToNomadHCL(yamlInput string) (string, error) {
 		configBody := configBlock.Body()
 		configBody.SetAttributeValue("image", cty.StringVal(service.Image))
 
-		var taskConfigPorts []cty.Value
+		var generatedPortLabels []string // For task.config.ports
+
 		if len(service.Ports) > 0 {
-			groupBody.AppendNewline()
+			groupBody.AppendNewline() // Newline before the network block
 			networkBlock := groupBody.AppendNewBlock("network", nil)
 			networkBody := networkBlock.Body()
-			for i, portMapping := range service.Ports {
-				parts := strings.Split(portMapping, ":")
-				containerPortStr := parts[len(parts)-1]
-				hostPortStr := containerPortStr
-				if len(parts) > 1 {
-					hostPortStr = parts[0]
-				}
-				taskConfigPorts = append(taskConfigPorts, cty.StringVal(containerPortStr))
-				portLabel := fmt.Sprintf("port%d_%s", i, containerPortStr)
-				portBlockNt := networkBody.AppendNewBlock("port", []string{portLabel})
-				portBodyNt := portBlockNt.Body()
-				if hostPortStr != "" {
-					parsedHostPort, err := parseInt64ForPort(hostPortStr)
-					if err == nil {
-						if hostPortStr != containerPortStr && len(parts) > 1 {
-							portBodyNt.SetAttributeValue("to", cty.NumberIntVal(parsedHostPort))
-						} else {
-							portBodyNt.SetAttributeValue("static", cty.NumberIntVal(parsedHostPort))
-						}
-					} else {
-						taskBody.AppendUnstructuredTokens(createCommentTokens(fmt.Sprintf("Could not parse host port '%s' for mapping '%s'.", hostPortStr, portMapping)))
+
+			// Step 1: Parse all port definitions, extract comments, strip protocols for consolidation key
+			parsedPortInfos := []ProcessedPortInfo{}
+			for _, portMappingWithComment := range service.Ports {
+				portSpecPart := portMappingWithComment
+				comment := ""
+
+				// Check if there's a comment in the port mapping
+				if strings.Contains(portMappingWithComment, "#") {
+					parts := strings.SplitN(portMappingWithComment, "#", 2)
+					portSpecPart = strings.TrimSpace(parts[0])
+					if len(parts) > 1 {
+						comment = strings.TrimSpace(parts[1])
 					}
 				}
-				if i < len(service.Ports)-1 {
-					networkBody.AppendNewline()
+
+				// Strip protocol suffix (/tcp or /udp) for port consolidation
+				containerPortWithoutProtocol := portSpecPart
+				if strings.Contains(portSpecPart, "/") {
+					containerPortWithoutProtocol = strings.Split(portSpecPart, "/")[0]
+				}
+
+				hostPortStr := ""
+				containerPortStr := "" // This will be the key for consolidation
+
+				if strings.Contains(containerPortWithoutProtocol, ":") {
+					parts := strings.SplitN(containerPortWithoutProtocol, ":", 2)
+					hostPortStr = parts[0]
+					containerPortStr = parts[1]
+				} else {
+					containerPortStr = containerPortWithoutProtocol // If no ':', it's the container port (for 'to')
+				}
+
+				if containerPortStr == "" {
+					taskBody.AppendUnstructuredTokens(createCommentTokens(fmt.Sprintf("Skipping invalid port spec: %s", portMappingWithComment)))
+					continue
+				}
+
+				// For consolidation, we need to strip any protocol suffix from the container port
+				strippedContainerPort := containerPortStr
+				if strings.Contains(containerPortStr, "/") {
+					strippedContainerPort = strings.Split(containerPortStr, "/")[0]
+				}
+
+				parsedPortInfos = append(parsedPortInfos, ProcessedPortInfo{
+					OriginalHostPort:      hostPortStr,      // Will be parsed later for 'static'
+					OriginalContainerPort: containerPortStr, // Will be parsed later for 'to' or if host is also container
+					Comment:               comment,
+					ProtocolStrippedPort:  strippedContainerPort, // Key for consolidation
+				})
+			}
+
+			// Step 2: Consolidate ports based on the (protocol-stripped) container port number
+			consolidatedPortMap := make(map[string]ProcessedPortInfo) // Key: ProtocolStrippedPort
+			for _, pInfo := range parsedPortInfos {
+				if _, exists := consolidatedPortMap[pInfo.ProtocolStrippedPort]; !exists {
+					consolidatedPortMap[pInfo.ProtocolStrippedPort] = pInfo // First one wins (for comment)
 				}
 			}
+
+			// Step 3: Generate HCL for consolidated ports
+			isFirstPortInBlock := true
+			// To ensure somewhat stable output order, we can sort keys, but map iteration is fine for now
+			for _, finalPInfo := range consolidatedPortMap {
+				var portLabel string
+				sanitizedComment := sanitizeCommentToLabel(finalPInfo.Comment)
+				if sanitizedComment != "" {
+					portLabel = sanitizedComment
+				} else {
+					wellKnownLabel := getWellKnownPortLabel(finalPInfo.ProtocolStrippedPort)
+					if wellKnownLabel != "" {
+						portLabel = wellKnownLabel
+					} else {
+						portLabel = "port_" + finalPInfo.ProtocolStrippedPort
+					}
+				}
+
+				if !isFirstPortInBlock {
+					networkBody.AppendNewline()
+				}
+				isFirstPortInBlock = false
+
+				nomadPortBlock := networkBody.AppendNewBlock("port", []string{portLabel})
+				nomadPortBody := nomadPortBlock.Body()
+
+				if finalPInfo.OriginalHostPort != "" { // Case: "host:container" -> static = host, to = container
+					hostPortVal, err := parseInt64ForPort(finalPInfo.OriginalHostPort)
+					if err != nil {
+						errMsg := fmt.Sprintf("Error parsing host port '%s' for label '%s': %s", finalPInfo.OriginalHostPort, portLabel, err.Error())
+						taskBody.AppendUnstructuredTokens(createCommentTokens(errMsg))
+						continue // Skip this port block
+					}
+
+					containerPortVal, err := parseInt64ForPort(finalPInfo.OriginalContainerPort)
+					if err != nil {
+						errMsg := fmt.Sprintf("Error parsing container port '%s' for label '%s': %s", finalPInfo.OriginalContainerPort, portLabel, err.Error())
+						taskBody.AppendUnstructuredTokens(createCommentTokens(errMsg))
+						continue // Skip this port block
+					}
+
+					// Set static to the host port
+					nomadPortBody.SetAttributeValue("static", cty.NumberIntVal(hostPortVal))
+
+					// If host port and container port are different, also set 'to' for the container port
+					if hostPortVal != containerPortVal {
+						nomadPortBody.SetAttributeValue("to", cty.NumberIntVal(containerPortVal))
+					}
+
+				} else { // Case: "container" -> to = container
+					containerPortVal, err := parseInt64ForPort(finalPInfo.ProtocolStrippedPort) // Use the clean one
+					if err != nil {
+						errMsg := fmt.Sprintf("Error parsing container port '%s' for label '%s': %s", finalPInfo.ProtocolStrippedPort, portLabel, err.Error())
+						taskBody.AppendUnstructuredTokens(createCommentTokens(errMsg))
+						continue // Skip this port block
+					}
+					nomadPortBody.SetAttributeValue("to", cty.NumberIntVal(containerPortVal))
+				}
+				generatedPortLabels = append(generatedPortLabels, portLabel)
+			}
 		}
-		if len(taskConfigPorts) > 0 {
-			configBody.SetAttributeValue("ports", cty.ListVal(taskConfigPorts))
+
+		// Update task.config.ports with generated labels (this is correct for Nomad)
+		if len(generatedPortLabels) > 0 {
+			configBody := configBlock.Body() // configBlock is defined at line 97
+			portLabelCtyValues := make([]cty.Value, len(generatedPortLabels))
+			for i, label := range generatedPortLabels {
+				portLabelCtyValues[i] = cty.StringVal(label)
+			}
+			configBody.SetAttributeValue("ports", cty.ListVal(portLabelCtyValues))
 		}
 
 		// --- Volume Handling ---
@@ -143,7 +293,7 @@ func convertToNomadHCL(yamlInput string) (string, error) {
 			for _, volSpec := range service.Volumes {
 				if !hasAnyVolumesInSection {
 					// Only add newline before the first volume-related item (comment, block, or attribute)
-					if len(configBlock.Body().Attributes()) > 1 || len(taskConfigPorts) > 0 { // if config already has ports or other attrs
+					if len(configBlock.Body().Attributes()) > 1 || len(generatedPortLabels) > 0 { // if config already has ports or other attrs
 						taskBody.AppendNewline()
 					}
 					hasAnyVolumesInSection = true
@@ -321,9 +471,7 @@ func parseInt64ForPort(s string) (int64, error) {
 	return i, nil
 }
 
-// --- WASM Export & main() --- (unchanged)
-//
-//export convert
+// export convert
 func convert(this js.Value, args []js.Value) interface{} {
 	if len(args) != 1 {
 		errorConstructor := js.Global().Get("Error")
@@ -347,11 +495,4 @@ func convert(this js.Value, args []js.Value) interface{} {
 	})
 	promiseConstructor := js.Global().Get("Promise")
 	return promiseConstructor.New(handler)
-}
-
-func main() {
-	c := make(chan struct{}, 0)
-	fmt.Println("Go WASM Initialized for Docker Compose to Nomad HCL Conversion")
-	js.Global().Set("golangConvertToNomad", js.FuncOf(convert))
-	<-c
 }
