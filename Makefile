@@ -1,5 +1,12 @@
+all: test build
+
+test:
+	@echo "Running Go tests..."
+	go test ./internal/converter/...
+
 build:
-	GOOS=js GOARCH=wasm go build -o static/main.wasm main.go
+	@echo "Building WASM binary..."
+	GOOS=js GOARCH=wasm go build -o static/main.wasm cmd/wasm/main.go
 
 assets:
 	cp "`go env GOROOT`/lib/wasm/wasm_exec.js" ./static

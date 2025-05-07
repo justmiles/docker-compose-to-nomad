@@ -246,7 +246,7 @@ volumes:
                 highlightHCLOutput(); 
                 return;
             }
-            if (!wasmReady || typeof golangConvertToNomad !== 'function') {
+            if (!wasmReady || typeof convertToNomad !== 'function') {
                 errorMessage.textContent = "WASM function not ready.";
                 copyButton.disabled = true;
                 copyMessage.textContent = "";
@@ -261,7 +261,7 @@ volumes:
             highlightHCLOutput(); 
 
             try {
-                const hclContent = await golangConvertToNomad(yamlContent);
+                const hclContent = await convertToNomad(yamlContent);
                 nomadOutputCode.textContent = hclContent; 
                 if (hclContent && hclContent !== "Error during conversion." && hclContent !== "Processing...") {
                     copyButton.disabled = false;
