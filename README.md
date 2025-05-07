@@ -2,6 +2,8 @@
 
 This project provides a tool to convert Docker Compose YAML configurations into Nomad HCL (HashiCorp Configuration Language) job specifications. It is written in Go and compiled to WebAssembly (WASM) to run directly in a web browser.
 
+## [Check it out here.](https://justmiles.github.io/docker-compose-to-nomad)
+
 ## How it Works
 
 The Go application parses a Docker Compose YAML file and transforms its services, ports, volumes, environment variables, and other configurations into the equivalent Nomad job, group, and task structures. The WebAssembly module exposes a function that can be called from JavaScript in the browser to perform this conversion.
