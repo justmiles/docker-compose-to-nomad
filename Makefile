@@ -17,10 +17,12 @@ dev: build
 dev-reload:
 	watchexec -r -e go -- make dev
 
+.ONESHELL:
 deploy: assets build
 	rm -rf dist
 	git clone --no-checkout --branch deployment git@github.com:justmiles/docker-compose-to-nomad.git dist
-	git --git-dir=dist/.git checkout --orphan deployment
-	rsync -avz --delete ./static/* ./dist/ && sleep 3
-	git --git-dir=dist/.git add -A
-	git --git-dir=dist/.git commit -a -m 'deployment'
+	cd dist
+	rsync -avz --delete ../static/* .
+	git add -A
+	git commit -a -m 'deployment'
+	git push -u origin deployment
