@@ -1,40 +1,310 @@
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <script src="wasm_exec.js"></script>
-    <script>
-      const go = new Go();
-      WebAssembly.instantiateStreaming(
-        fetch("main.wasm"),
-        go.importObject
-      ).then((result) => {
-        go.run(result.instance);
-      });
-    </script>
-  </head>
-  <body>
-    <div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Compose to Nomad HCL Converter</title>
+    <link rel="stylesheet" href="prism.css">
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container {
+            display: flex;
+            flex-direction: column; /* <-- Changed from row (default) to column */
+            gap: 20px; 
+            max-width: 900px; /* Adjusted max-width for vertical layout */
+            margin: auto; 
+        }
+        .pane { 
+            flex: 1; /* Panes will share available vertical space if needed */
+            background-color: #fff; 
+            padding: 15px; 
+            border-radius: 5px; 
+            box-shadow: 0 0 10px rgba(0,0,0,0.1); 
+        }
+        
+        .code-input-container {
+            position: relative;
+            width: 100%; /* Take full width of parent pane */
+            height: 350px; /* Adjusted height for vertical layout */
+            box-sizing: border-box;
+        }
 
-      <textarea id="inputField" name="Hash" rows="10" cols="80">
-version: "3.9"
+        textarea#composeInput, pre#yamlHighlightPre {
+            margin: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            overflow: auto;
+        }
+
+        textarea#composeInput {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            color: transparent;
+            background-color: transparent;
+            caret-color: black;
+            resize: none;
+        }
+
+        pre#yamlHighlightPre {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            pointer-events: none;
+            background-color: #f5f2f0;
+        }
+        pre#yamlHighlightPre code { 
+            display: block;
+        }
+
+        pre[class*="language-hcl"] { /* For HCL output */
+            width: 100%; /* Take full width of parent pane */
+            height: 350px; /* Adjusted height for vertical layout */
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box;
+            line-height: 1.5;
+            overflow: auto;
+            background-color: #f5f2f0; 
+            border-radius: 5px;
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+        }
+
+        button {
+            display: block; 
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+        button:hover { background-color: #0056b3; }
+        h2 { text-align: center; color: #333; }
+        h3 { margin-top: 0; } /* Remove default top margin from h3 for better spacing in pane */
+        .error { color: red; font-weight: bold; margin-top: 10px; }
+        .button-container { 
+            display: flex;
+            gap: 10px; 
+            margin-top: 10px;
+        }
+        .copy-button { 
+            background-color: #28a745; 
+            width: auto; 
+            padding: 8px 15px;
+            font-size: 14px;
+        }
+        .copy-button:hover { background-color: #218838; }
+        .copy-button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #copyMessage {
+            font-size: 0.9em;
+            color: green;
+            margin-top: 5px;
+            height: 1em; 
+        }
+    </style>
+</head>
+<body>
+    <h2>Docker Compose to Nomad HCL Converter (WASM + Go)</h2>
+    <div class="container"> <!-- This will now stack children vertically -->
+        <div class="pane">
+            <h3>Docker Compose (YAML)</h3>
+            <div class="code-input-container">
+                <pre id="yamlHighlightPre"><code class="language-yaml" id="yamlHighlightCode"></code></pre>
+                <textarea id="composeInput" spellcheck="false" placeholder="Paste your docker-compose.yml content here..."></textarea>
+            </div>
+            <button id="convertButton" disabled>Load WASM and Convert</button>
+        </div>
+        <div class="pane">
+            <h3>Nomad Job (HCL)</h3>
+            <pre id="nomadOutput"><code class="language-hcl">Output will appear here...</code></pre>
+            <div id="errorMessage" class="error"></div>
+            <div class="button-container">
+                 <button id="copyButton" class="copy-button" disabled>Copy HCL</button>
+            </div>
+            <div id="copyMessage"></div>
+        </div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script src="prism.js"></script>
+    <script>
+        // JavaScript remains the same as the previous version
+        // ... (copy the entire <script> block from the previous correct version here) ...
+        const composeInput = document.getElementById('composeInput');
+        const yamlHighlightPre = document.getElementById('yamlHighlightPre');
+        const yamlHighlightCode = document.getElementById('yamlHighlightCode');
+
+        const nomadOutputPre = document.getElementById('nomadOutput');
+        const nomadOutputCode = nomadOutputPre.querySelector('code');
+        const convertButton = document.getElementById('convertButton');
+        const copyButton = document.getElementById('copyButton');
+        const errorMessage = document.getElementById('errorMessage');
+        const copyMessage = document.getElementById('copyMessage');
+
+        let wasmReady = false;
+        const initialYamlContent = `version: '3.8'
+
 services:
   web:
-    image: "testcontainer/test"
+    image: nginx:latest
     ports:
-      - "8000:5000"
-  redis:
-    image: "redis:alpine"
-      </textarea>
+      - "8080:80"
+    volumes:
+      - ./html_content:/usr/share/nginx/html:ro
+      - app_data:/data
+    environment:
+      NGINX_HOST: example.com
+      NGINX_PORT: 80
+    restart: always
+    deploy:
+      replicas: 2
 
-      <textarea id="outputHash" name="Output" rows="10" cols="80">      </textarea>
+  api:
+    image: myapi:1.0
+    ports:
+      - "3000"
+    environment:
+      DB_HOST: database
+    command: ["node", "server.js"]
 
-    </div>
-    <script>
-      var inputField = document.querySelector("#inputField");
-      var outputHash = document.querySelector("#outputHash");
-      inputField.addEventListener("keyup", function () {
-        outputHash.innerHTML = wasmHash(inputField.value); // The function 'wasmHash' is defined in the Go code
-      });
+volumes:
+  app_data: {}`;
+
+        composeInput.value = initialYamlContent; 
+
+        function highlightHCLOutput() {
+            Prism.highlightAllUnder(nomadOutputPre);
+        }
+
+        function highlightYAMLInput() {
+            const code = composeInput.value;
+            yamlHighlightCode.textContent = code;
+            Prism.highlightElement(yamlHighlightCode);
+            yamlHighlightPre.scrollTop = composeInput.scrollTop;
+            yamlHighlightPre.scrollLeft = composeInput.scrollLeft;
+        }
+
+        composeInput.addEventListener('input', highlightYAMLInput);
+        composeInput.addEventListener('scroll', () => { 
+            yamlHighlightPre.scrollTop = composeInput.scrollTop;
+            yamlHighlightPre.scrollLeft = composeInput.scrollLeft;
+        });
+
+
+        async function initWasm() {
+            if (!WebAssembly.instantiateStreaming) { 
+                WebAssembly.instantiateStreaming = async (resp, importObject) => {
+                    const source = await (await resp).arrayBuffer();
+                    return await WebAssembly.instantiate(source, importObject);
+                };
+            }
+            const go = new Go();
+            try {
+                const result = await WebAssembly.instantiateStreaming(fetch('main.wasm'), go.importObject);
+                go.run(result.instance);
+                wasmReady = true;
+                convertButton.disabled = false;
+                convertButton.textContent = 'Convert to Nomad HCL';
+                console.log("WASM Loaded and Go initialized.");
+                highlightYAMLInput(); 
+                highlightHCLOutput(); 
+            } catch (err) {
+                console.error("Error loading WASM:", err);
+                errorMessage.textContent = "Error loading WASM: " + err;
+                convertButton.textContent = 'WASM Load Failed';
+            }
+        }
+
+        initWasm();
+
+        convertButton.addEventListener('click', async () => {
+            const yamlContent = composeInput.value;
+            if (!yamlContent.trim()) {
+                nomadOutputCode.textContent = "Input is empty.";
+                errorMessage.textContent = "";
+                copyButton.disabled = true;
+                copyMessage.textContent = "";
+                highlightHCLOutput(); 
+                return;
+            }
+            if (!wasmReady || typeof golangConvertToNomad !== 'function') {
+                errorMessage.textContent = "WASM function not ready.";
+                copyButton.disabled = true;
+                copyMessage.textContent = "";
+                return;
+            }
+            convertButton.disabled = true;
+            convertButton.textContent = 'Converting...';
+            copyButton.disabled = true;
+            errorMessage.textContent = "";
+            copyMessage.textContent = "";
+            nomadOutputCode.textContent = "Processing...";
+            highlightHCLOutput(); 
+
+            try {
+                const hclContent = await golangConvertToNomad(yamlContent);
+                nomadOutputCode.textContent = hclContent; 
+                if (hclContent && hclContent !== "Error during conversion." && hclContent !== "Processing...") {
+                    copyButton.disabled = false;
+                }
+            } catch (err) {
+                console.error("Conversion error:", err);
+                nomadOutputCode.textContent = "Error during conversion.";
+                errorMessage.textContent = "Error: " + (err.message || err);
+                copyButton.disabled = true;
+            } finally {
+                convertButton.disabled = false;
+                convertButton.textContent = 'Convert to Nomad HCL';
+                highlightHCLOutput(); 
+            }
+        });
+
+        copyButton.addEventListener('click', async () => {
+            const textToCopy = nomadOutputCode.textContent;
+            if (!textToCopy || textToCopy === "Output will appear here..." || textToCopy === "Processing..." || textToCopy === "Error during conversion." || textToCopy === "Input is empty.") {
+                copyMessage.textContent = "Nothing to copy.";
+                setTimeout(() => copyMessage.textContent = "", 2000);
+                return;
+            }
+            if (!navigator.clipboard) {
+                copyMessage.textContent = "Clipboard API not available.";
+                console.warn("navigator.clipboard is not available");
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                copyMessage.textContent = "HCL copied to clipboard!";
+                const originalButtonText = copyButton.textContent;
+                copyButton.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyMessage.textContent = "";
+                    copyButton.textContent = originalButtonText;
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                copyMessage.textContent = "Failed to copy. See console.";
+                setTimeout(() => copyMessage.textContent = "", 3000);
+            }
+        });
     </script>
-  </body>
+</body>
 </html>
