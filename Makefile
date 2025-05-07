@@ -12,3 +12,12 @@ dev-reload:
 
 test:
 	go test -timeout 30s github.com/justmiles/docker-compose-to-nomad/cmd/wasm
+
+deploy:
+	git branch -D deployment
+	git checkout --orphan deployment
+	git reset
+	rsync -a static/* .
+	git add *.html *.wasm *.js *.css
+	git commit -m 'deployment'
+	git push -u origin deployment --force
