@@ -10,14 +10,9 @@ dev: build
 dev-reload:
 	watchexec -r -e go -- make dev
 
-test:
-	go test -timeout 30s github.com/justmiles/docker-compose-to-nomad/cmd/wasm
-
-deploy:
-	git branch -D deployment
-	git checkout --orphan deployment
-	git reset
-	rsync -a static/* .
-	git add *.html *.wasm *.js *.css
-	git commit -m 'deployment'
-	git push -u origin deployment --force
+deploy: assets build
+  git clone --single-branch --branch deployment git@github.com:justmiles/docker-compose-to-nomad.git dist
+	cd dist
+	rsync -avz --delete ../static/* .
+	git commit -am 'deployment'
+	git push -u origin deployment
