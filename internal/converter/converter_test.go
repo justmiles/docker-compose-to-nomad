@@ -32,6 +32,9 @@ services:
     ports:
       - "3000" # API port
     command: ["/app/start", "--port", "3000"]
+    environment:
+      - PUID=1000
+      - PGID=1000
     restart: "on-failure"
 volumes:
   logs:
@@ -67,15 +70,15 @@ func TestConvertToNomadHCL_Basic(t *testing.T) {
 	if !strings.Contains(hclOutput, "port \"http\"") {
 		t.Errorf("HCL output does not contain http port for 'web' service")
 	}
-    if !strings.Contains(hclOutput, "static = 80") {
-        t.Errorf("HCL output does not contain static port 80 for 'web' service's http port")
-    }
+	if !strings.Contains(hclOutput, "static = 80") {
+		t.Errorf("HCL output does not contain static port 80 for 'web' service's http port")
+	}
 	if !strings.Contains(hclOutput, "port \"https\"") {
 		t.Errorf("HCL output does not contain https port for 'web' service")
 	}
-    if !strings.Contains(hclOutput, "static = 443") {
-        t.Errorf("HCL output does not contain static port 443 for 'web' service's https port")
-    }
+	if !strings.Contains(hclOutput, "static = 443") {
+		t.Errorf("HCL output does not contain static port 443 for 'web' service's https port")
+	}
 	if !strings.Contains(hclOutput, "volumes = [\"./nginx.conf:/etc/nginx/nginx.conf:ro\"]") {
 		t.Errorf("HCL output does not contain host volume for 'web' service")
 	}
@@ -85,8 +88,10 @@ func TestConvertToNomadHCL_Basic(t *testing.T) {
 	if !regexp.MustCompile(webLogsVolumePattern).MatchString(hclOutput) {
 		t.Errorf("HCL output does not contain correctly configured named volume_mount for 'logs' in service 'web'")
 	}
-	if !strings.Contains(hclOutput, "NGINX_HOST = \"example.com\"") {
-		t.Errorf("HCL output does not contain environment variable for 'web' service")
+	// Check web service environment (map style)
+	webEnvPattern := `group "web"[\s\S]*?task "web"[\s\S]*?env\s*\{\s*NGINX_HOST\s*=\s*"example.com"\s*\}`
+	if !regexp.MustCompile(webEnvPattern).MatchString(hclOutput) {
+		t.Errorf("HCL output does not contain correct environment variable NGINX_HOST for 'web' service")
 	}
 	if !strings.Contains(hclOutput, "group \"api\"") {
 		t.Errorf("HCL output does not contain group block for 'api' service")
@@ -97,15 +102,25 @@ func TestConvertToNomadHCL_Basic(t *testing.T) {
 	if !strings.Contains(hclOutput, "port \"port_3000\"") { // default label if not http/s
 		t.Errorf("HCL output does not contain port for 'api' service")
 	}
-    if !strings.Contains(hclOutput, "to = 3000") {
-        t.Errorf("HCL output does not contain 'to = 3000' for 'api' service")
-    }
+	if !strings.Contains(hclOutput, "to = 3000") {
+		t.Errorf("HCL output does not contain 'to = 3000' for 'api' service")
+	}
 	if !strings.Contains(hclOutput, "command = \"/app/start\"") {
 		t.Errorf("HCL output does not contain correct command for 'api' service")
 	}
 	if !regexp.MustCompile(`args\s*=\s*\[\s*"--port",\s*"3000"\s*\]`).MatchString(hclOutput) {
 		t.Errorf("HCL output does not contain correct args for 'api' service (args = [\"--port\", \"3000\"])")
 	}
+	// Check api service environment (list style)
+	apiEnvPatternPUID := `group "api"[\s\S]*?task "api"[\s\S]*?env\s*\{[\s\S]*?PUID\s*=\s*"1000"[\s\S]*?\}`
+	if !regexp.MustCompile(apiEnvPatternPUID).MatchString(hclOutput) {
+		t.Errorf("HCL output does not contain correct environment variable PUID for 'api' service")
+	}
+	apiEnvPatternPGID := `group "api"[\s\S]*?task "api"[\s\S]*?env\s*\{[\s\S]*?PGID\s*=\s*"1000"[\s\S]*?\}`
+	if !regexp.MustCompile(apiEnvPatternPGID).MatchString(hclOutput) {
+		t.Errorf("HCL output does not contain correct environment variable PGID for 'api' service")
+	}
+
 	webRestartPattern := `group "web"[\s\S]*?restart\s*\{\s*attempts\s*=\s*0\s*delay\s*=\s*"15s"\s*mode\s*=\s*"delay"\s*\}`
 	if !regexp.MustCompile(webRestartPattern).MatchString(hclOutput) {
 		t.Errorf("HCL output does not contain correct restart policy for 'web' service (unless-stopped: attempts=0, delay=15s, mode=delay)")

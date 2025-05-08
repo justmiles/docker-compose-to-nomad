@@ -253,10 +253,75 @@ func ConvertToNomadHCL(yamlInput string) (string, error) {
 			taskBody.AppendNewline()
 		}
 
-		if len(service.Environment) > 0 {
+		envVarsToAdd := make(map[string]string)
+		if service.Environment != nil {
+			switch envTyped := service.Environment.(type) {
+			case map[string]string: // Handles environments explicitly defined as map[string]string
+				for key, val := range envTyped {
+					envVarsToAdd[key] = val
+				}
+			case map[any]any: // Handles environments unmarshalled as map[interface{}]interface{} by go-yaml
+				for k, v := range envTyped {
+					keyStr, keyOk := k.(string)
+					if !keyOk {
+						// Silently ignore non-string keys
+						continue
+					}
+
+					var valStr string
+					if v == nil { // Handles VAR: (null value in YAML)
+						valStr = ""
+					} else {
+						vStr, valIsString := v.(string)
+						if !valIsString {
+							// Attempt to convert to string if it's not nil and not a string (e.g. int, bool)
+							// For Nomad env vars, values are ultimately strings.
+							valStr = fmt.Sprintf("%v", v)
+						} else {
+							valStr = vStr
+						}
+					}
+					envVarsToAdd[keyStr] = valStr
+				}
+			case map[string]any: // Handles environments unmarshalled as map[string]interface{}
+				for key, v := range envTyped {
+					var valStr string
+					if v == nil {
+						valStr = ""
+					} else {
+						vStr, valIsString := v.(string)
+						if !valIsString {
+							valStr = fmt.Sprintf("%v", v)
+						} else {
+							valStr = vStr
+						}
+					}
+					envVarsToAdd[key] = valStr
+				}
+			case []any: // Likely []interface{} from YAML unmarshal for list format
+				for _, item := range envTyped {
+					if s, ok := item.(string); ok {
+						parts := strings.SplitN(s, "=", 2)
+						if len(parts) == 2 {
+							envVarsToAdd[parts[0]] = parts[1]
+						} else if len(parts) == 1 { // Handle VAR (no =VALUE)
+							// Docker Compose would take this from the shell.
+							// Nomad env block sets vars directly. Set to empty string.
+							envVarsToAdd[parts[0]] = ""
+						}
+						// Silently ignore malformed entries like "=VAL" or "KEY=VAL=EXTRA" (SplitN handles this well for KEY=VAL)
+					}
+				}
+				// Note: `case []string:` is covered by `[]any` due to how `yaml.Unmarshal` works with `any`.
+			}
+		}
+
+		if len(envVarsToAdd) > 0 {
 			envBlock := taskBody.AppendNewBlock("env", nil)
 			envBody := envBlock.Body()
-			for key, val := range service.Environment {
+			// Sort keys for consistent output (optional, but good for testability)
+			// For now, iterate directly as order isn't strictly critical for functionality
+			for key, val := range envVarsToAdd {
 				envBody.SetAttributeValue(key, cty.StringVal(val))
 			}
 			taskBody.AppendNewline()
@@ -322,7 +387,7 @@ func ConvertToNomadHCL(yamlInput string) (string, error) {
 		}
 
 		if service.Restart != "" {
-			if len(service.Environment) > 0 || hasAnyVolumesInSection || len(configBlock.Body().Attributes()) > 1 {
+			if len(envVarsToAdd) > 0 || hasAnyVolumesInSection || len(configBlock.Body().Attributes()) > 1 {
 				taskBody.AppendNewline()
 			}
 			restartBlock := taskBody.AppendNewBlock("restart", nil)

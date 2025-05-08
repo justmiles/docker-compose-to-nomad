@@ -11,7 +11,7 @@ type DockerCompose struct {
 type Service struct {
 	Image       string            `yaml:"image"`
 	Ports       []string          `yaml:"ports"`
-	Environment map[string]string `yaml:"environment"`
+	Environment any               `yaml:"environment"` // Can be map[string]string or []string
 	Volumes     []string          `yaml:"volumes"`
 	Command     any               `yaml:"command"`    // Can be string or list
 	Entrypoint  any               `yaml:"entrypoint"` // Can be string or list
